@@ -74,7 +74,7 @@ JavaScript (ES6+)：邏輯判斷與粒子特效繪製。
 
 請允許瀏覽器使用攝像頭權限。
 
-📄 授權 (License)
+https://poh429.github.io/anime-hand-gestures/
 
 MIT License
 
