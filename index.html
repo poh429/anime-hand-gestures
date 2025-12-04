@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 咒術迴戰 & 一拳超人特效</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    
+    <style>
+        body {
+            background-color: #0f172a;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            transition: background-color 0.1s ease; /* 加快切換速度以配合打擊感 */
+        }
+        
+        /* --- 背景特效狀態 --- */
+        body.mode-purple { background-color: #1a0b2e; }
+        body.mode-red { background-color: #2b0b0b; }
+        body.mode-void { 
+            background-color: #000000; 
+            background-image: radial-gradient(white 1px, transparent 0);
+            background-size: 40px 40px;
+            filter: contrast(1.2);
+        }
+        /* 一拳超人模式：鮮豔的紅黃配色 */
+        body.mode-punch {
+            background: radial-gradient(circle, #facc15 0%, #ef4444 40%, #7f1d1d 100%);
+        }
+
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .input_video { display: none; }
+        
+        .output_canvas {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            transform: scaleX(-1);
+            transition: all 0.2s;
+        }
+
+        /* --- 畫布特效動畫 --- */
+        body.mode-purple .output_canvas {
+            box-shadow: 0 0 60px 20px rgba(168, 85, 247, 0.5);
+            animation: shake 0.5s infinite;
+        }
+        body.mode-red .output_canvas {
+            box-shadow: 0 0 60px 20px rgba(239, 68, 68, 0.6);
+            border: 2px solid #ef4444;
+            animation: pulse-red 0.2s infinite;
+        }
+        body.mode-void .output_canvas {
+            box-shadow: 0 0 100px 30px rgba(255, 255, 255, 0.3);
+            filter: grayscale(100%) contrast(150%) brightness(1.2);
+        }
+        /* 一拳模式：劇烈震動 */
+        body.mode-punch .output_canvas {
+            box-shadow: 0 0 80px 40px rgba(255, 200, 0, 0.8);
+            border: 5px solid #fff;
+            animation: heavy-shake 0.2s infinite;
+        }
+
+        .ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .counter-card {
+            margin-top: 20px;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(8px);
+            padding: 1rem 2rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            text-align: center;
+            z-index: 10;
+            transition: all 0.3s ease;
+        }
+        
+        /* 特效觸發時隱藏計數器 */
+        body.mode-purple .counter-card,
+        body.mode-red .counter-card,
+        body.mode-void .counter-card,
+        body.mode-punch .counter-card {
+            opacity: 0;
+            transform: translateY(-50px);
+        }
+
+        .count-number {
+            font-size: 4rem;
+            font-weight: 800;
+            line-height: 1;
+            color: #38bdf8;
+        }
+
+        /* --- 術式文字特效 --- */
+        .technique-text {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            font-size: 6rem;
+            font-weight: 900;
+            color: white;
+            opacity: 0;
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 50;
+            white-space: nowrap;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        body.mode-purple .technique-text {
+            opacity: 1; transform: translate(-50%, -50%) scale(1);
+            text-shadow: 0 0 20px #a855f7, 0 0 40px #7c3aed;
+            content: "虛式「紫」";
+        }
+        
+        body.mode-red .technique-text {
+            opacity: 1; transform: translate(-50%, -50%) scale(1);
+            color: #fee2e2;
+            text-shadow: 0 0 20px #ef4444, 0 0 50px #b91c1c;
+        }
+
+        body.mode-void .technique-text {
+            opacity: 1; transform: translate(-50%, -50%) scale(1.2);
+            color: #000; -webkit-text-stroke: 2px #fff; text-shadow: 0 0 10px #fff;
+            font-family: "Noto Serif TC", serif;
+        }
+
+        /* 一拳特效文字 */
+        body.mode-punch .technique-text {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1.1) rotate(-5deg);
+            color: #ff0000;
+            -webkit-text-stroke: 4px #fbbf24;
+            text-shadow: 5px 5px 0px #000;
+            font-style: italic;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: scaleX(-1) translate(0, 0); }
+            25% { transform: scaleX(-1) translate(2px, 2px); }
+            75% { transform: scaleX(-1) translate(-2px, -2px); }
+        }
+        @keyframes pulse-red {
+            0% { transform: scaleX(-1) scale(1); }
+            50% { transform: scaleX(-1) scale(1.02); }
+            100% { transform: scaleX(-1) scale(1); }
+        }
+        @keyframes heavy-shake {
+            0% { transform: scaleX(-1) translate(0, 0) rotate(0deg); }
+            20% { transform: scaleX(-1) translate(-10px, 10px) rotate(-2deg); }
+            40% { transform: scaleX(-1) translate(10px, -10px) rotate(2deg); }
+            60% { transform: scaleX(-1) translate(-10px, -10px) rotate(-2deg); }
+            80% { transform: scaleX(-1) translate(10px, 10px) rotate(2deg); }
+            100% { transform: scaleX(-1) translate(0, 0) rotate(0deg); }
+        }
+
+        .instruction-bar {
+            position: absolute;
+            bottom: 20px;
+            display: flex;
+            gap: 15px;
+            background: rgba(0,0,0,0.6);
+            padding: 10px 20px;
+            border-radius: 30px;
+            backdrop-filter: blur(5px);
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .instruction-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: #e2e8f0;
+        }
+        .key-icon {
+            font-weight: bold;
+            color: #facc15;
+            background: rgba(255,255,255,0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="canvas-container">
+        <video class="input_video"></video>
+        <canvas class="output_canvas"></canvas>
+
+        <div class="ui-layer">
+            <div class="counter-card">
+                <div id="display-number" class="count-number">-</div>
+                <div id="status-msg" class="text-sm text-gray-300 mt-2">啟動中...</div>
+            </div>
+            
+            <div id="tech-text" class="technique-text"></div>
+
+            <div class="instruction-bar">
+                <div class="instruction-item"><span class="key-icon">👊</span> 認真毆打</div>
+                <div class="instruction-item"><span class="key-icon">🖕</span> 虛式「紫」</div>
+                <div class="instruction-item"><span class="key-icon">🤘</span> 術式反轉「赫」</div>
+                <div class="instruction-item"><span class="key-icon">🤞</span> 無量空處</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        const canvasElement = document.getElementsByClassName('output_canvas')[0];
+        const canvasCtx = canvasElement.getContext('2d');
+        const displayNumber = document.getElementById('display-number');
+        const statusMsg = document.getElementById('status-msg');
+        const techText = document.getElementById('tech-text');
+        const body = document.body;
+
+        // 手指狀態判斷 (Tip Y < Pip Y)
+        function isFingerExtended(landmarks, tipId, pipId) {
+            return landmarks[tipId].y < landmarks[pipId].y;
+        }
+
+        // 距離計算
+        function getDistance(p1, p2) {
+            return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        }
+
+        // --- 手勢判斷邏輯 ---
+
+        // 4. 一拳超人：所有手指彎曲 (握拳)
+        function checkOnePunch(landmarks) {
+            // 檢查四根手指是否都收起 (低於第二關節)
+            // 為了讓握拳更容易觸發，容錯率設高一點 (-0.02)
+            const benchmarkIndex = landmarks[6].y - 0.02;
+            const benchmarkMiddle = landmarks[10].y - 0.02;
+            const benchmarkRing = landmarks[14].y - 0.02;
+            const benchmarkPinky = landmarks[18].y - 0.02;
+
+            // 判斷指尖是否低於(數值大於)關鍵點
+            const indexFolded = landmarks[8].y > benchmarkIndex;
+            const middleFolded = landmarks[12].y > benchmarkMiddle;
+            const ringFolded = landmarks[16].y > benchmarkRing;
+            const pinkyFolded = landmarks[20].y > benchmarkPinky;
+
+            return indexFolded && middleFolded && ringFolded && pinkyFolded;
+        }
+
+        // 1. 虛式「紫」
+        function checkHollowPurple(landmarks) {
+            const indexFolded = !isFingerExtended(landmarks, 8, 6);
+            const middleExtended = isFingerExtended(landmarks, 12, 10);
+            const ringFolded = !isFingerExtended(landmarks, 16, 14);
+            const pinkyFolded = !isFingerExtended(landmarks, 20, 18);
+            return middleExtended && indexFolded && ringFolded && pinkyFolded;
+        }
+
+        // 2. 術式反轉「赫」 (寬鬆版)
+        function checkRed(landmarks) {
+            const indexExtended = isFingerExtended(landmarks, 8, 6);
+            const pinkyExtended = isFingerExtended(landmarks, 20, 18);
+            
+            if (indexExtended && pinkyExtended) {
+                const benchmarkY = landmarks[6].y - 0.03; 
+                const middleTucked = landmarks[12].y > benchmarkY;
+                const ringTucked = landmarks[16].y > benchmarkY;
+                return middleTucked && ringTucked;
+            }
+            return false;
+        }
+
+        // 3. 領域展開「無量空處」
+        function checkUnlimitedVoid(landmarks) {
+            const indexExtended = isFingerExtended(landmarks, 8, 6);
+            const middleExtended = isFingerExtended(landmarks, 12, 10);
+            const ringFolded = !isFingerExtended(landmarks, 16, 14);
+            const pinkyFolded = !isFingerExtended(landmarks, 20, 18);
+            
+            if (indexExtended && middleExtended && ringFolded && pinkyFolded) {
+                const dist = getDistance(landmarks[8], landmarks[12]);
+                if (dist < 0.05) return true; 
+            }
+            return false;
+        }
+
+        // 計算一般數字
+        function countFingers(landmarks, isRightHand) {
+            let count = 0;
+            const tipIds = [8, 12, 16, 20];
+            const pipIds = [6, 10, 14, 18];
+            for (let i = 0; i < tipIds.length; i++) {
+                if (landmarks[tipIds[i]].y < landmarks[pipIds[i]].y) count++;
+            }
+            const thumbTipX = landmarks[4].x;
+            const thumbIpX = landmarks[3].x;
+            if (isRightHand) {
+                if (thumbTipX < thumbIpX) count++;
+            } else {
+                if (thumbTipX > thumbIpX) count++;
+            }
+            return count;
+        }
+
+        // --- 特效繪製函數 ---
+
+        function drawPunchEffect(ctx, x, y) {
+             const time = Date.now();
+             
+             // 1. 衝擊波核心 (亮黃色)
+             ctx.beginPath();
+             ctx.arc(x, y, 80 + Math.random() * 20, 0, 2 * Math.PI);
+             ctx.fillStyle = '#fef08a'; // yellow-200
+             ctx.fill();
+             
+             // 2. 紅色外圈爆炸
+             ctx.beginPath();
+             ctx.arc(x, y, 120 + Math.random() * 30, 0, 2 * Math.PI);
+             ctx.strokeStyle = '#ef4444'; // red-500
+             ctx.lineWidth = 10;
+             ctx.stroke();
+
+             // 3. 速度線 (集中線)
+             ctx.strokeStyle = '#fbbf24'; // amber-400
+             ctx.lineWidth = 5;
+             for (let i = 0; i < 12; i++) {
+                 const angle = (i * 30 * Math.PI) / 180 + time * 0.01;
+                 const startR = 100;
+                 const endR = 1000; // 延伸到畫面外
+                 
+                 ctx.beginPath();
+                 ctx.moveTo(x + Math.cos(angle) * startR, y + Math.sin(angle) * startR);
+                 ctx.lineTo(x + Math.cos(angle) * endR, y + Math.sin(angle) * endR);
+                 ctx.stroke();
+             }
+        }
+
+        function drawPurpleEffect(ctx, x, y) {
+            const time = Date.now() / 200;
+            const radius = 50 + Math.sin(time) * 10;
+            
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            gradient.addColorStop(0.4, 'rgba(168, 85, 247, 1)');
+            gradient.addColorStop(1, 'rgba(88, 28, 135, 0)');
+            
+            ctx.beginPath();
+            ctx.arc(x, y, radius * 1.5, 0, 2 * Math.PI);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+
+            ctx.strokeStyle = '#e9d5ff';
+            ctx.lineWidth = 3;
+            for(let i=0; i<5; i++) {
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                const angle = Math.random() * Math.PI * 2;
+                const len = radius * 2;
+                ctx.quadraticCurveTo(
+                    x + Math.cos(angle)*len*0.5 + Math.random()*20, 
+                    y + Math.sin(angle)*len*0.5 + Math.random()*20, 
+                    x + Math.cos(angle)*len, 
+                    y + Math.sin(angle)*len
+                );
+                ctx.stroke();
+            }
+        }
+
+        function drawRedEffect(ctx, x, y) {
+            const time = Date.now() / 100;
+            const radius = 40 + Math.random() * 20;
+
+            const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+            gradient.addColorStop(0, 'rgba(255, 200, 200, 1)');
+            gradient.addColorStop(0.5, 'rgba(239, 68, 68, 0.9)');
+            gradient.addColorStop(1, 'rgba(153, 27, 27, 0)');
+
+            ctx.beginPath();
+            ctx.arc(x, y, radius * 2 + (time % 10) * 10, 0, 2 * Math.PI);
+            ctx.strokeStyle = `rgba(239, 68, 68, ${1 - (time%10)/10})`;
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, 2 * Math.PI);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+        }
+
+        function drawVoidEffect(ctx, landmarks) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < landmarks.length; i++) {
+                for (let j = i + 1; j < landmarks.length; j++) {
+                    const p1 = landmarks[i];
+                    const p2 = landmarks[j];
+                    const dist = getDistance(p1, p2);
+                    if (dist < 0.15) {
+                        ctx.beginPath();
+                        ctx.moveTo(p1.x * canvasElement.width, p1.y * canvasElement.height);
+                        ctx.lineTo(p2.x * canvasElement.width, p2.y * canvasElement.height);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        function onResults(results) {
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            let currentTechnique = 'NONE';
+            let techniquePoint = {x: 0, y: 0};
+            let totalFingers = 0;
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const landmarks = results.multiHandLandmarks[i];
+                    
+                    // 優先權判斷: 一拳 > 領域展開 > 赫 > 紫 > 普通計數
+                    // 注意：握拳(checkOnePunch) 與 無量空處(checkUnlimitedVoid) 互斥 (手指是否伸直)
+                    
+                    if (checkOnePunch(landmarks)) {
+                        currentTechnique = 'PUNCH';
+                        // 拳頭中心 (取中指根部)
+                        techniquePoint = {x: landmarks[9].x * canvasElement.width, y: landmarks[9].y * canvasElement.height};
+                        // 畫出充滿力量的骨架
+                        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#facc15', lineWidth: 8});
+                        drawPunchEffect(canvasCtx, techniquePoint.x, techniquePoint.y);
+                        
+                    } else if (checkUnlimitedVoid(landmarks)) {
+                        currentTechnique = 'VOID';
+                        techniquePoint = {x: landmarks[8].x * canvasElement.width, y: landmarks[8].y * canvasElement.height};
+                        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#FFFFFF', lineWidth: 2});
+                        drawVoidEffect(canvasCtx, landmarks);
+                        
+                    } else if (checkRed(landmarks)) {
+                        currentTechnique = 'RED';
+                        techniquePoint = {x: landmarks[9].x * canvasElement.width, y: landmarks[9].y * canvasElement.height};
+                        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#ef4444', lineWidth: 4});
+                        drawRedEffect(canvasCtx, techniquePoint.x, techniquePoint.y);
+                        
+                    } else if (checkHollowPurple(landmarks)) {
+                        currentTechnique = 'PURPLE';
+                        techniquePoint = {x: landmarks[12].x * canvasElement.width, y: landmarks[12].y * canvasElement.height};
+                        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#a855f7', lineWidth: 4});
+                        drawPurpleEffect(canvasCtx, techniquePoint.x, techniquePoint.y);
+                        
+                    } else {
+                        // 普通計數模式
+                        let label = 'Right';
+                        if (results.multiHandedness && results.multiHandedness[i]) label = results.multiHandedness[i].label;
+                        
+                        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00FF00', lineWidth: 4});
+                        drawLandmarks(canvasCtx, landmarks, {color: '#FF0000', lineWidth: 2});
+                        totalFingers += countFingers(landmarks, label === 'Right');
+                    }
+                }
+            }
+
+            // 更新 UI 狀態
+            body.className = ''; 
+            techText.innerText = '';
+            
+            if (currentTechnique === 'PUNCH') {
+                body.classList.add('mode-punch');
+                techText.innerText = '必殺\n認真毆打';
+            } else if (currentTechnique === 'VOID') {
+                body.classList.add('mode-void');
+                techText.innerText = '領域展開\n無量空處';
+            } else if (currentTechnique === 'RED') {
+                body.classList.add('mode-red');
+                techText.innerText = '術式反轉「赫」';
+            } else if (currentTechnique === 'PURPLE') {
+                body.classList.add('mode-purple');
+                techText.innerText = '虛式「紫」';
+            } else {
+                if (results.multiHandLandmarks.length > 0) {
+                    displayNumber.innerText = totalFingers;
+                    statusMsg.innerText = "偵測到手指";
+                } else {
+                    displayNumber.innerText = "-";
+                    statusMsg.innerText = "請將手放入鏡頭";
+                }
+            }
+
+            canvasCtx.restore();
+        }
+
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 1280,
+            height: 720
+        });
+        camera.start();
+    </script>
+</body>
+</html>
